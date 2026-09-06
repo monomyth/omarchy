@@ -161,6 +161,29 @@ wait "$reset_pid"
   fail "Radeon watchdog catches a compositor-style mask reset"
 pass "Radeon watchdog closes the compositor reset window"
 
+failing_apply_stub="$stub_bin/failing-apply-mclk"
+cat >"$failing_apply_stub" <<SH
+#!/bin/bash
+echo apply >>"$test_tmp/watchdog-failed-applies"
+exit 1
+SH
+chmod +x "$failing_apply_stub"
+
+provide_gpu
+: >"$test_tmp/watchdog-failed-applies"
+set +e
+PATH="$stub_bin:$PATH" \
+  OMARCHY_MBP133_DMI_PRODUCT="$dmi_product" \
+  OMARCHY_MBP133_PCI_DEVICES="$pci_devices" \
+  OMARCHY_MBP133_APPLY_HELPER="$failing_apply_stub" \
+  "$installed_monitor" >/dev/null 2>&1
+failed_monitor_status=$?
+set -e
+(( failed_monitor_status == 0 )) || fail "Radeon watchdog stops cleanly after a DPM I/O failure"
+(( $(wc -l <"$test_tmp/watchdog-failed-applies") == 1 )) ||
+  fail "Radeon watchdog does not retry an unavailable GPU"
+pass "Radeon watchdog contains a failed GPU recovery without a retry storm"
+
 OMARCHY_MBP133_DMI_PRODUCT="$dmi_product" \
   OMARCHY_MBP133_PCI_DEVICES="$pci_devices" \
   OMARCHY_MBP133_VERIFY_DPM=0 \
