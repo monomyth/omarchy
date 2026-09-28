@@ -322,7 +322,22 @@ if invoke_leaf 43ba >/dev/null 2>&1; then
   fail "missing machine-id without a live MAC must not look like success"
 fi
 [[ -z $(ls -A "$fwdir") ]] || fail "missing machine-id leaves nothing behind" "$(ls -A "$fwdir")"
+rm -rf "$fwdir" "$packaged" "$pci_devices"
+mkdir -p "$fwdir" "$packaged"
+printf '%s\n' 'uninitialized' >"$machine_id_file"
+if invoke_leaf 43ba >/dev/null 2>&1; then
+  fail "uninitialized machine-id without a live MAC must not look like success"
+fi
+[[ -z $(ls -A "$fwdir") ]] || fail "uninitialized machine-id leaves nothing behind" "$(ls -A "$fwdir")"
+rm -rf "$fwdir" "$packaged" "$pci_devices"
+mkdir -p "$fwdir" "$packaged"
+printf '%s\n' '0123456789abcdef0123456789abcde' >"$machine_id_file"
+if invoke_leaf 43ba >/dev/null 2>&1; then
+  fail "a short machine-id without a live MAC must not look like success"
+fi
+[[ -z $(ls -A "$fwdir") ]] || fail "a short machine-id leaves nothing behind" "$(ls -A "$fwdir")"
 printf '%s\n' '0123456789abcdef0123456789abcdef' >"$machine_id_file"
+pass "a machine-id that is not 32 hex digits fails and persists nothing"
 pass "empty machine-id without a live MAC fails and persists nothing"
 
 run_leaf "Apple Inc." "MacBookPro14,3" 43a0 >/dev/null

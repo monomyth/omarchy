@@ -122,7 +122,10 @@ brcmfmac43602_machine_id() {
 brcmfmac43602_stable_mac() {
   local id seed
   id=$(brcmfmac43602_machine_id)
-  [[ -n $id ]] || return 1
+  # "uninitialized" is systemd's first-boot placeholder, not an id. Hashing
+  # any non-empty string would give every such machine the same address, and
+  # the install skip guard would keep it after a real id is written.
+  [[ $id =~ ^[0-9a-f]{32}$ ]] || return 1
   seed=$(printf '%s' "$id:bcm43602-wifi" | sha256sum | cut -c1-10)
   [[ ${#seed} == 10 ]] || return 1
   printf '02:%s:%s:%s:%s:%s\n' \
