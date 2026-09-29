@@ -135,6 +135,8 @@ brcmfmac43602_machine_id() {
 brcmfmac43602_stable_mac() {
   local id seed salt
   id=$(brcmfmac43602_machine_id)
+  # Reject systemd's "uninitialized" placeholder as well as malformed/zero IDs.
+  # Persisting a hash of a placeholder would give different hosts the same MAC.
   [[ $id =~ ^[0-9a-f]{32}$ && $id != 00000000000000000000000000000000 ]] || return 1
   if [[ $(brcmfmac43602_dmi_product) == "MacBookPro13,3" ]]; then
     salt=mbp133-wifi

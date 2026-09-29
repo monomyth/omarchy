@@ -333,7 +333,22 @@ if invoke_leaf 43ba >/dev/null 2>&1; then
   fail "missing machine-id without a live MAC must not look like success"
 fi
 [[ -z $(ls -A "$fwdir") ]] || fail "missing machine-id leaves nothing behind" "$(ls -A "$fwdir")"
+rm -rf "$fwdir" "$packaged" "$pci_devices"
+mkdir -p "$fwdir" "$packaged"
+printf '%s\n' 'uninitialized' >"$machine_id_file"
+if invoke_leaf 43ba >/dev/null 2>&1; then
+  fail "uninitialized machine-id without a live MAC must not look like success"
+fi
+[[ -z $(ls -A "$fwdir") ]] || fail "uninitialized machine-id leaves nothing behind" "$(ls -A "$fwdir")"
+rm -rf "$fwdir" "$packaged" "$pci_devices"
+mkdir -p "$fwdir" "$packaged"
+printf '%s\n' '0123456789abcdef0123456789abcde' >"$machine_id_file"
+if invoke_leaf 43ba >/dev/null 2>&1; then
+  fail "a short machine-id without a live MAC must not look like success"
+fi
+[[ -z $(ls -A "$fwdir") ]] || fail "a short machine-id leaves nothing behind" "$(ls -A "$fwdir")"
 printf '%s\n' '0123456789abcdef0123456789abcdef' >"$machine_id_file"
+pass "a machine-id that is not 32 hex digits fails and persists nothing"
 pass "empty machine-id without a live MAC fails and persists nothing"
 
 # All supported boards must fail closed before staging firmware, not just 14,3.
@@ -526,6 +541,33 @@ if OMARCHY_BRCMFMAC43602_NVRAM="$test_tmp/keyless.txt" invoke_leaf 43ba >/dev/nu
 fi
 [[ -z $(ls -A "$fwdir") ]] || fail "a keyless calibration leaves no firmware behind"
 pass "a calibration missing macaddr is rejected before installation"
+# Staging rollback is covered above. The dest `mv` path is separate: the first
+# rename can succeed and the second fail. Rollback must still remove both names
+# (and leftover .tmp files) so the skip guard cannot treat a half-installed
+# pair as done.
+rm -rf "$fwdir" "$packaged" "$pci_devices"
+mkdir -p "$fwdir" "$packaged"
+provide_mac
+printf '%s' "Apple Inc." >"$test_tmp/dmi/sys_vendor"
+printf '%s' "MacBookPro14,3" >"$test_tmp/dmi/product_name"
+cat >"$stub_bin/mv" <<SH
+#!/bin/bash
+dest=\${@: -1}
+if [[ \$dest == "$fwdir/"* && \$dest != *.tmp ]]; then
+  if [[ -e "$test_tmp/mv-once" ]]; then
+    exit 1
+  fi
+  touch "$test_tmp/mv-once"
+fi
+exec /usr/bin/mv "\$@"
+SH
+chmod +x "$stub_bin/mv"
+if invoke_leaf 43ba >/dev/null 2>&1; then
+  fail "a failed dest rename does not look like success"
+fi
+rm -f "$stub_bin/mv" "$test_tmp/mv-once"
+[[ -z $(ls -A "$fwdir") ]] || fail "a failed dest rename leaves nothing behind" "$(ls -A "$fwdir")"
+pass "a failed dest rename is rolled back"
 
 rm -rf "$fwdir" "$packaged" "$pci_devices"
 mkdir -p "$fwdir" "$packaged"
