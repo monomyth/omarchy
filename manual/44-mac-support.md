@@ -39,6 +39,8 @@ The installer detects Mac hardware and applies the needed fixes automatically: B
 
 The BCM43602 calibration keeps the required MAC-address field populated. When no usable address is discoverable, the installer derives a stable local address from the installation's machine ID; installation stops without writing firmware if that ID is missing or invalid. Cloned installations must have distinct machine IDs to avoid sharing the same fallback address. Existing calibration files are preserved, so updating Omarchy does not silently change an already-installed Wi-Fi identity.
 
+The NVMe suspend workaround resolves the controller backing the root disk on each boot and leaves unrelated controllers alone. It skips external-USB roots and missing or ambiguous controller mappings; it does not fall back to a hard-coded PCI address. Internal-NVMe-root suspend/resume still needs hardware validation for the MacBookPro13,3 changes.
+
 ### Known Limitations
 
 Members of the community are constantly working on solutions to these challenges so if these are problematic for you, join #omarchy-on-other in our [Discord](https://discord.gg/tXFUdasqhY) and see if there's any up-to-date methods for resolving these.

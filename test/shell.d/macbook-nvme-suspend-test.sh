@@ -46,7 +46,10 @@ SH
 cat >"$stub_bin/lsblk" <<'SH'
 #!/bin/bash
 
-printf 'root crypt\nsda2 part\nsda disk\n'
+[[ $* == "-rsno NAME,TYPE /dev/mapper/root" ]] || exit 1
+printf '%s\n' "${TEST_LSBLK:-root crypt
+sda2 part
+sda disk}"
 SH
 
 cat >"$stub_bin/install" <<'SH'
@@ -81,6 +84,7 @@ invoke_leaf() {
 }
 
 mkdir -p "$nvme_sysfs/nvme0/device" "$nvme_sysfs/nvme1/device"
+mkdir -p "$nvme_sysfs/nvme0/nvme0n1" "$nvme_sysfs/nvme1/nvme1n1"
 printf '1\n' >"$nvme_sysfs/nvme0/device/d3cold_allowed"
 printf '1\n' >"$nvme_sysfs/nvme1/device/d3cold_allowed"
 printf 'MacBookPro13,3\n' >"$dmi_product"
@@ -95,12 +99,64 @@ grep -Fq $'systemctl\tenable\t--now\tomarchy-nvme-suspend-fix.service' "$calls" 
   fail "NVMe service is enabled and applied immediately"
 pass "MacBookPro13,3 installs a class-based NVMe suspend service"
 
-OMARCHY_MACBOOK_NVME_SYSFS="$nvme_sysfs" "$installed_helper" >/dev/null
+invoke_helper() {
+  PATH="$stub_bin:$PATH" OMARCHY_MACBOOK_NVME_SYSFS="$nvme_sysfs" \
+    OMARCHY_MACBOOK_ROOT_DISK="${TEST_ROOT_DISK-nvme0n1}" \
+    "$installed_helper" "$@"
+}
+
+target=$(invoke_helper --print-target)
+[[ $target == "$nvme_sysfs/nvme0/device/d3cold_allowed" ]] || fail "probe finds only the root controller"
+[[ $(<"$target") == 1 ]] || fail "target probe never writes D3cold"
+pass "installer target probe is read-only"
+
+invoke_helper >/dev/null
 [[ $(<"$nvme_sysfs/nvme0/device/d3cold_allowed") == 0 ]] ||
   fail "first NVMe controller has D3cold disabled"
-[[ $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 0 ]] ||
-  fail "second NVMe controller has D3cold disabled"
-pass "NVMe helper applies the setting to every actual controller"
+[[ $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 1 ]] ||
+  fail "unrelated NVMe controller is unchanged"
+pass "NVMe helper changes only the root controller"
+
+printf '1\n' >"$nvme_sysfs/nvme0/device/d3cold_allowed"
+TEST_ROOT_DISK=nvme1n1 invoke_helper >/dev/null
+[[ $(<"$nvme_sysfs/nvme0/device/d3cold_allowed") == 1 ]] || fail "old root controller is unchanged"
+[[ $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 0 ]] || fail "new root controller is selected"
+pass "helper resolves the current root on every invocation"
+
+printf '1\n' >"$nvme_sysfs/nvme1/device/d3cold_allowed"
+for disk in sda nvme9n1 nvme0n1p1 '../nvme0n1' $'nvme0n1\nnvme1n1'; do
+  TEST_ROOT_DISK="$disk" invoke_helper >/dev/null
+  [[ $(<"$nvme_sysfs/nvme0/device/d3cold_allowed") == 1 && $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 1 ]] ||
+    fail "unsupported, missing or ambiguous root never changes controllers"
+done
+pass "non-NVMe, missing, malformed and ambiguous root targets are no-ops"
+
+TEST_ROOT_DISK="" TEST_LSBLK=$'root crypt\nnvme1n1p2 part\nnvme1n1 disk' invoke_helper >/dev/null
+[[ $(<"$nvme_sysfs/nvme0/device/d3cold_allowed") == 1 && $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 0 ]] ||
+  fail "encrypted NVMe root resolves to its controller"
+pass "encrypted Btrfs root resolves without lsblk tree glyphs"
+
+printf '1\n' >"$nvme_sysfs/nvme1/device/d3cold_allowed"
+TEST_ROOT_DISK="" TEST_LSBLK=$'root crypt\nnvme0n1 disk\nnvme1n1 disk' invoke_helper >/dev/null
+[[ $(<"$nvme_sysfs/nvme0/device/d3cold_allowed") == 1 && $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 1 ]] ||
+  fail "multi-disk root must not select the first ancestor"
+pass "multiple root disk ancestors are left unchanged"
+
+mkdir -p "$nvme_sysfs/nvme1/nvme0n1"
+invoke_helper >/dev/null
+[[ $(<"$nvme_sysfs/nvme0/device/d3cold_allowed") == 1 && $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 1 ]] ||
+  fail "ambiguous namespace ancestry never changes controllers"
+rmdir "$nvme_sysfs/nvme1/nvme0n1"
+pass "ambiguous sysfs namespace ownership is left unchanged"
+
+mv "$nvme_sysfs/nvme0/device/d3cold_allowed" "$test_tmp/saved-setting"
+invoke_helper >/dev/null
+[[ ! -e $nvme_sysfs/nvme0/device/d3cold_allowed && $(<"$nvme_sysfs/nvme1/device/d3cold_allowed") == 1 ]] ||
+  fail "missing root control never falls back to a different controller"
+TEST_ROOT_DISK=nvme0n1 invoke_leaf
+[[ ! -e $unit_file ]] || fail "missing root control retires the stale service"
+mv "$test_tmp/saved-setting" "$nvme_sysfs/nvme0/device/d3cold_allowed"
+pass "missing root control does not fall back and retires the stale service"
 
 # An external root does not need an internal-NVMe boot workaround. Remove an
 # old fixed-BDF unit so it cannot keep changing the Radeon at 01:00.0.
